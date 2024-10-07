@@ -12,6 +12,7 @@ where
 {
     scale_factor: f64,
     viewport: Viewport,
+    wp_viewport: Option<layershellev::WpViewport>,
     viewport_version: usize,
     theme: A::Theme,
     appearance: Appearance,
@@ -31,11 +32,19 @@ where
         let viewport = {
             let (width, height) = window.main_window().get_size();
 
-            Viewport::with_physical_size(iced_core::Size::new(width, height), 1. * scale_factor)
+            let viewport = Viewport::with_physical_size(
+                iced_core::Size::new(width, height),
+                1. * scale_factor,
+            );
+            if let Some(wp_viewport) = window.main_window().get_wp_viewport() {
+                wp_viewport.set_destination((width / 2) as i32, (height / 2) as i32);
+            }
+            viewport
         };
         Self {
             scale_factor,
             viewport,
+            wp_viewport: window.main_window().get_wp_viewport().cloned(),
             viewport_version: 0,
             theme,
             appearance,
@@ -52,7 +61,10 @@ where
         self.viewport = Viewport::with_physical_size(
             iced_core::Size::new(width, height),
             1. * self.scale_factor(),
-        )
+        );
+        if let Some(wp_viewport) = self.wp_viewport.as_ref() {
+            wp_viewport.set_destination((width / 2) as i32, (height / 2) as i32);
+        }
     }
 
     pub fn viewport(&self) -> &Viewport {
@@ -107,8 +119,13 @@ where
     pub fn synchronize(&mut self, application: &A) {
         let new_scale_factor = application.scale_factor();
         if self.scale_factor != new_scale_factor {
+            let size = self.physical_size();
             self.viewport =
-                Viewport::with_physical_size(self.physical_size(), 1. * new_scale_factor);
+                Viewport::with_physical_size(size, 1. * new_scale_factor);
+
+            if let Some(wp_viewport) = self.wp_viewport.as_ref() {
+                wp_viewport.set_destination((size.width / 2) as i32, (size.height / 2) as i32);
+            };
             self.viewport_version = self.viewport_version.wrapping_add(1);
             self.scale_factor = new_scale_factor;
         }

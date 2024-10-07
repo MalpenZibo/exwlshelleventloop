@@ -113,6 +113,8 @@
 //!
 pub use events::NewLayerShellSettings;
 pub use events::NewPopUpSettings;
+pub use sctk::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use sctk::reexports::protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 pub use waycrate_xkbkeycode::keyboard;
 pub use waycrate_xkbkeycode::xkb_keyboard;
 
@@ -359,6 +361,7 @@ pub struct WindowStateUnit<T> {
     wl_output: Option<WlOutput>,
     binding: Option<T>,
     becreated: bool,
+    wp_viewport: Option<WpViewport>,
 }
 
 impl<T> WindowStateUnit<T> {
@@ -379,6 +382,7 @@ impl<T> WindowStateUnit<T> {
             id: self.id,
             display: self.display.clone(),
             wl_surface: self.wl_surface.clone(),
+            wp_viewport: self.wp_viewport.clone(),
         }
     }
 }
@@ -529,6 +533,10 @@ impl<T> WindowStateUnit<T> {
         self.size
     }
 
+    pub fn get_wp_viewport(&self) -> Option<&WpViewport> {
+        self.wp_viewport.as_ref()
+    }
+
     /// this function will refresh whole surface. it will reattach the buffer, and damage whole,
     /// and final commit
     pub fn request_refresh(&self, (width, height): (i32, i32)) {
@@ -647,6 +655,7 @@ pub struct WindowWrapper {
     pub id: id::Id,
     display: WlDisplay,
     wl_surface: WlSurface,
+    pub wp_viewport: Option<WpViewport>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -710,6 +719,7 @@ impl<T> WindowState<T> {
                 id: id::Id::MAIN,
                 display: self.display.as_ref().unwrap().clone(),
                 wl_surface: self.background_surface.as_ref().unwrap().clone(),
+                wp_viewport: self.main_window().wp_viewport.clone(),
             };
         }
         self.main_window().gen_wrapper()
@@ -1664,6 +1674,36 @@ impl<T> Dispatch<wp_fractional_scale_v1::WpFractionalScaleV1, ()> for WindowStat
     }
 }
 
+impl<T> Dispatch<wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter, ()>
+    for WindowState<T>
+{
+    fn event(
+        _: &mut Self,
+        _: &wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter,
+        _: <wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // No events.
+    }
+}
+
+impl<T> Dispatch<wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport, ()>
+    for WindowState<T>
+{
+    fn event(
+        _: &mut Self,
+        _: &wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport,
+        _: <wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // No events.
+    }
+}
+
 delegate_noop!(@<T> WindowState<T>: ignore WlCompositor); // WlCompositor is need to create a surface
 delegate_noop!(@<T> WindowState<T>: ignore WlSurface); // surface is the base needed to show buffer
 delegate_noop!(@<T> WindowState<T>: ignore WlOutput); // output is need to place layer_shell, although here
@@ -1685,6 +1725,9 @@ delegate_noop!(@<T> WindowState<T>: ignore ZxdgOutputManagerV1);
 delegate_noop!(@<T> WindowState<T>: ignore WpFractionalScaleManagerV1);
 delegate_noop!(@<T> WindowState<T>: ignore XdgPositioner);
 delegate_noop!(@<T> WindowState<T>: ignore XdgWmBase);
+
+delegate_noop!(@<T> WindowState<T>: ignore WpViewporter);
+delegate_noop!(@<T> WindowState<T>: ignore WpViewport);
 
 impl<T: 'static> WindowState<T> {
     /// build a new WindowState
@@ -1728,6 +1771,7 @@ impl<T: 'static> WindowState<T> {
         let fractional_scale_manager = globals
             .bind::<WpFractionalScaleManagerV1, _, _>(&qh, 1..=1, ())
             .ok();
+        let wp_viewporter = globals.bind::<WpViewporter, _, _>(&qh, 1..=1, ()).ok();
 
         event_queue.blocking_dispatch(&mut self)?; // then make a dispatch
 
@@ -1799,6 +1843,9 @@ impl<T: 'static> WindowState<T> {
                 fractional_scale =
                     Some(fractional_scale_manager.get_fractional_scale(&wl_surface, &qh, ()));
             }
+            let wp_viewport = wp_viewporter
+                .as_ref()
+                .map(|v| v.get_viewport(&wl_surface, &qh, ()));
             // so during the init Configure of the shell, a buffer, atleast a buffer is needed.
             // and if you need to reconfigure it, you need to commit the wl_surface again
             // so because this is just an example, so we just commit it once
@@ -1815,6 +1862,7 @@ impl<T: 'static> WindowState<T> {
                 binding: None,
                 becreated: false,
                 wl_output: None,
+                wp_viewport,
             });
         } else {
             let displays = self.outputs.clone();
@@ -1853,6 +1901,10 @@ impl<T: 'static> WindowState<T> {
                     fractional_scale =
                         Some(fractional_scale_manager.get_fractional_scale(&wl_surface, &qh, ()));
                 }
+                let wp_viewport = wp_viewporter
+                    .as_ref()
+                    .map(|v| v.get_viewport(&wl_surface, &qh, ()));
+
                 // so during the init Configure of the shell, a buffer, atleast a buffer is needed.
                 // and if you need to reconfigure it, you need to commit the wl_surface again
                 // so because this is just an example, so we just commit it once
@@ -1870,6 +1922,7 @@ impl<T: 'static> WindowState<T> {
                     binding: None,
                     becreated: false,
                     wl_output: Some(output_display.clone()),
+                    wp_viewport,
                 });
             }
             self.message.clear();
@@ -2021,6 +2074,7 @@ impl<T: 'static> WindowState<T> {
                         let layer_shell = globals
                             .bind::<ZwlrLayerShellV1, _, _>(&qh, 3..=4, ())
                             .unwrap();
+                        let wp_viewporter = globals.bind::<WpViewporter, _, _>(&qh, 1..=1, ()).ok();
                         let layer = layer_shell.get_layer_surface(
                             &wl_surface,
                             Some(output_display),
@@ -2054,6 +2108,9 @@ impl<T: 'static> WindowState<T> {
                                 (),
                             ));
                         }
+                        let wp_viewport = wp_viewporter
+                            .as_ref()
+                            .map(|v| v.get_viewport(&wl_surface, &qh, ()));
                         // so during the init Configure of the shell, a buffer, atleast a buffer is needed.
                         // and if you need to reconfigure it, you need to commit the wl_surface again
                         // so because this is just an example, so we just commit it once
@@ -2071,6 +2128,7 @@ impl<T: 'static> WindowState<T> {
                             binding: None,
                             becreated: false,
                             wl_output: Some(output_display.clone()),
+                            wp_viewport,
                         });
                     }
                     _ => {
@@ -2296,6 +2354,8 @@ impl<T: 'static> WindowState<T> {
                             let layer_shell = globals
                                 .bind::<ZwlrLayerShellV1, _, _>(&qh, 3..=4, ())
                                 .unwrap();
+                            let wp_viewporter =
+                                globals.bind::<WpViewporter, _, _>(&qh, 1..=1, ()).ok();
                             let layer = layer_shell.get_layer_surface(
                                 &wl_surface,
                                 output,
@@ -2329,6 +2389,10 @@ impl<T: 'static> WindowState<T> {
                                         (),
                                     ));
                             }
+                            let wp_viewport = wp_viewporter
+                                .as_ref()
+                                .map(|v| v.get_viewport(&wl_surface, &qh, ()));
+
                             // so during the init Configure of the shell, a buffer, atleast a buffer is needed.
                             // and if you need to reconfigure it, you need to commit the wl_surface again
                             // so because this is just an example, so we just commit it once
@@ -2346,6 +2410,7 @@ impl<T: 'static> WindowState<T> {
                                 becreated: true,
                                 wl_output: output.cloned(),
                                 binding: info,
+                                wp_viewport,
                             });
                         }
                         ReturnData::NewPopUp((
@@ -2363,6 +2428,8 @@ impl<T: 'static> WindowState<T> {
                             else {
                                 continue;
                             };
+                            let wp_viewporter =
+                                globals.bind::<WpViewporter, _, _>(&qh, 1..=1, ()).ok();
                             let wl_surface = wmcompositer.create_surface(&qh, ());
                             let positioner = wmbase.create_positioner(&qh, ());
                             positioner.set_size(width as i32, height as i32);
@@ -2384,6 +2451,10 @@ impl<T: 'static> WindowState<T> {
                                         (),
                                     ));
                             }
+                            let wp_viewport = wp_viewporter
+                                .as_ref()
+                                .map(|v| v.get_viewport(&wl_surface, &qh, ()));
+
                             wl_surface.commit();
 
                             self.units.push(WindowStateUnit {
@@ -2398,6 +2469,7 @@ impl<T: 'static> WindowState<T> {
                                 becreated: true,
                                 wl_output: None,
                                 binding: info,
+                                wp_viewport
                             });
                         }
                         _ => {}

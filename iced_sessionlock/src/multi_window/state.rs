@@ -3,17 +3,19 @@ use crate::{Appearance, DefaultStyle};
 use iced_core::{mouse as IcedMouse, Color, Point, Size};
 use iced_graphics::Viewport;
 use sessionlockev::keyboard::ModifiersState;
+use sessionlockev::WindowStateUnit;
 
 use crate::event::WindowEvent;
 use iced::window;
 
-pub struct State<A: Application>
+pub struct State<'a, A: Application>
 where
     A::Theme: DefaultStyle,
 {
     id: window::Id,
     scale_factor: f64,
     viewport: Viewport,
+    wp_viewport: Option<&'a WindowStateUnit>,
     viewport_version: usize,
     theme: A::Theme,
     appearance: Appearance,
@@ -21,17 +23,29 @@ where
     modifiers: ModifiersState,
 }
 
-impl<A: Application> State<A>
+impl<'a, A: Application> State<A>
 where
     A::Theme: DefaultStyle,
 {
-    pub fn new(id: window::Id, application: &A, (width, height): (u32, u32)) -> Self {
+    pub fn new(id: window::Id, application: &A, window: &'a WindowStateSimple) -> Self {
         let scale_factor = application.scale_factor(id);
         let theme = application.theme();
         let appearance = application.style(&theme);
 
-        let viewport =
-            Viewport::with_physical_size(iced_core::Size::new(width, height), 1. * scale_factor);
+        let viewport = {
+            let (width, height) = window.main_window().get_size();
+
+            let viewport = Viewport::with_physical_size(
+                iced_core::Size::new(width, height),
+                1. * scale_factor,
+            );
+            if let Some(wp_viewport) = window.main_window().get_wp_viewport() {
+                wp_viewport.set_destination((width / 2) as i32, (height / 2) as i32);
+            }
+
+            viewport
+        };
+
         Self {
             id,
             scale_factor,
@@ -50,7 +64,10 @@ where
         self.viewport = Viewport::with_physical_size(
             iced_core::Size::new(width, height),
             1. * self.scale_factor(),
-        )
+        );
+        if let Some(wp_viewport) = self.wp_viewport {
+            wp_viewport.set_destination((width / 2) as i32, (height / 2) as i32);
+        }
     }
 
     pub fn viewport(&self) -> &Viewport {
@@ -105,8 +122,12 @@ where
     pub fn synchronize(&mut self, application: &A) {
         let new_scale_factor = application.scale_factor(self.id);
         if self.scale_factor != new_scale_factor {
+            let size = self.physical_size();
             self.viewport =
-                Viewport::with_physical_size(self.physical_size(), 1. * new_scale_factor);
+                Viewport::with_physical_size(size, 1. * new_scale_factor);
+            if let Some(wp_viewport) = self.wp_viewport {
+                wp_viewport.set_destination((size.width / 2) as i32, (size.height / 2) as i32);
+            }
             self.viewport_version = self.viewport_version.wrapping_add(1);
             self.scale_factor = new_scale_factor;
         }

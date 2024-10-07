@@ -590,7 +590,8 @@ async fn run_instance<A, E, C>(
                     window.mouse_interaction = new_mouse_interaction;
                 }
 
-                compositor.configure_surface(&mut window.surface, width, height);
+                // println!("width: {}, height: {}", width, height);
+                compositor.configure_surface(&mut window.surface, width * 2, height * 2);
                 runtime.broadcast(iced_futures::subscription::Event::Interaction {
                     window: id,
                     event: redraw_event.clone(),

@@ -14,6 +14,7 @@ where
     id: window::Id,
     scale_factor: f64,
     viewport: Viewport,
+    wp_viewport: Option<layershellev::WpViewport>,
     viewport_version: usize,
     theme: A::Theme,
     appearance: Appearance,
@@ -25,17 +26,36 @@ impl<A: Application> State<A>
 where
     A::Theme: DefaultStyle,
 {
-    pub fn new(id: window::Id, application: &A, (width, height): (u32, u32)) -> Self {
+    pub fn new(
+        id: window::Id,
+        application: &A,
+        size: (u32, u32),
+        wp_viewport: Option<layershellev::WpViewport>,
+    ) -> Self {
         let scale_factor = application.scale_factor(id);
         let theme = application.theme();
         let appearance = application.style(&theme);
 
-        let viewport =
-            Viewport::with_physical_size(iced_core::Size::new(width, height), 1. * scale_factor);
+        let viewport = {
+            let (width, height) = size;
+            println!("width: {}, height: {}", width, height);
+            println!("scale_factor: {}", scale_factor);
+            let viewport = Viewport::with_physical_size(
+                iced_core::Size::new(width * 2, height * 2),
+                2.
+            );
+            if let Some(wp_viewport) = wp_viewport.as_ref() {
+                wp_viewport.set_destination((width) as i32, (height) as i32);
+            }
+
+            viewport
+        };
+
         Self {
             id,
             scale_factor,
             viewport,
+            wp_viewport,
             viewport_version: 0,
             theme,
             appearance,
@@ -47,10 +67,14 @@ where
         self.modifiers
     }
     pub fn update_view_port(&mut self, width: u32, height: u32) {
+        println!("update_view_port: width: {}, height: {}", width, height);
         self.viewport = Viewport::with_physical_size(
-            iced_core::Size::new(width, height),
-            1. * self.scale_factor(),
-        )
+            iced_core::Size::new(width * 2, height * 2),
+            2.,
+        );
+        if let Some(wp_viewport) = self.wp_viewport.as_ref() {
+            wp_viewport.set_destination((width) as i32, (height) as i32);
+        }
     }
 
     pub fn viewport(&self) -> &Viewport {
@@ -109,8 +133,12 @@ where
     pub fn synchronize(&mut self, application: &A) {
         let new_scale_factor = application.scale_factor(self.id);
         if self.scale_factor != new_scale_factor {
-            self.viewport =
-                Viewport::with_physical_size(self.physical_size(), 1. * new_scale_factor);
+            let size = self.physical_size() * 2;
+            println!("synchronize: width: {}, height: {}", size.width, size.height);
+            self.viewport = Viewport::with_physical_size(size, 2.);
+            if let Some(wp_viewport) = self.wp_viewport.as_ref() {
+                wp_viewport.set_destination(size.width as i32, size.height as i32);
+            }
             self.viewport_version = self.viewport_version.wrapping_add(1);
             self.scale_factor = new_scale_factor;
         }
